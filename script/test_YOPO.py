@@ -18,18 +18,25 @@ from keras.layers import average
 def reduce_mean(softmax):
     return tf.reduce_mean(softmax, 0)
 
+def crop(x_input, loc_x, loc_y ):
+    # x_input, loc_x, loc_y = var[0], var[1], var[2]
+    # return x_input[:, loc_x - 10:loc_x + 10, loc_y - 10:loc_y + 10, :]
+    return x_input
+
+loc = [[10, 10], [10, 14]]#, [10, 18], [14, 10], [14, 14], [14, 18], [18, 10], [18, 14], [18, 18]]
+
 def create_Model(x_input):
-    loc = [[10, 10], [10, 14], [10, 18], [14, 10], [14, 14], [14, 18], [18, 10], [18, 14], [18, 18]]
 
     layer1_out = []
     softmax = []
-    inputs = []
+    inputs = Input(shape = [28,28,1])
     for i, loc_i in enumerate(loc):
         # crop
         loc_x, loc_y = loc_i
-        x_crop_i = x_input[:, loc_x - 10:loc_x + 10, loc_y - 10:loc_y + 10, :]
-        inputs += [Input(shape=x_crop_i[0].shape)]
-        x = Conv2D(filters=32, kernel_size=5)(inputs[i])
+        pre_process = Lambda(crop, arguments={'loc_x':loc_i[0], 'loc_y':loc_i[1] })(inputs)
+        #x_crop_i = inputs#[:, loc_x - 10:loc_x + 10, loc_y - 10:loc_y + 10, :]
+        #inputs += [Input(shape=x_crop_i[0].shape)]
+        x = Conv2D(filters=32, kernel_size=5)(pre_process)
         layer1_out += [x]
         x = MaxPool2D(pool_size=2)(x)
         x = Conv2D(filters=64, kernel_size=5)(x)
@@ -40,7 +47,6 @@ def create_Model(x_input):
         softmax += [softmax_i]
 
     softmax = average(softmax)
-    layer1_out = tf.reduce_mean(layer1_out, 0)
     model = Model(inputs=inputs, outputs=softmax)
     return model, layer1_out
 
@@ -117,13 +123,7 @@ if __name__ == '__main__':
 
     x_test = x_test.astype('float32') / 255.0
     x_test = sess.run(tf.expand_dims(x_test, -1))
-    logits_train = []
-    logits_test = []
-    for i in range(9):
-        logits_train += [keras.utils.to_categorical(y_train, num_classes)]
-        logits_test += [keras.utils.to_categorical(y_test, num_classes)]
-
-    logits_train = np.asarray(logits_train)
+    logits_train, logits_test = keras.utils.to_categorical(y_train, num_classes), keras.utils.to_categorical(y_test, num_classes)
 
     train_datagen = ImageDataGenerator()
     train_datagen.fit(x_train)
@@ -138,17 +138,6 @@ if __name__ == '__main__':
     opt = Adam(lr=1e-4, beta_1=0.5)
 
     #x_test = x_test[:, loc_x - 10:loc_x + 10, loc_y - 10:loc_y + 10, :]
-    loc = [[10, 10], [10, 14], [10, 18], [14, 10], [14, 14], [14, 18], [18, 10], [18, 14], [18, 18]]
-    x_crops = []
-    for i, loc_i in enumerate(loc):
-        # crop
-        loc_x, loc_y = loc_i
-        x_crops += [x_train[:, loc_x - 10:loc_x + 10, loc_y - 10:loc_y + 10, :]]
-
-    x_crops = np.array(x_crops)
-
-    lengthx = len(x_crops)
-    lengthy = len(logits_train)
 
     model, layer1_out = create_Model(x_train)
 
@@ -169,17 +158,20 @@ if __name__ == '__main__':
     grad_t = K.gradients(loss_t, input_xs)[0]
 
     # YOPO
-    loss_layer1_t = K.gradients(loss_t, layer1_out)[0]  # gradient of loss w.r.t. the output of the first layer
-    p_layer1_t = K.placeholder(layer1_out.shape, dtype=tf.float32)
-    hamilton_layer1_t = keras.layers.dot([Flatten()(p_layer1_t), Flatten()(layer1_out)], axes=1)
-    yopo_grad_t = K.gradients(hamilton_layer1_t, input_xs)[0]  # YOPO approximation of grad_t
+    loss_layer1_t = K.gradients(loss_t, layer1_out)  # gradient of loss w.r.t. the output of the first layer
+    p_layer1_t = K.placeholder([len(loc)]+layer1_out[0].get_shape().as_list(), dtype=tf.float32)
+    yopo_grad_t = []
+    for i in range(2):
+        hamilton_layer1_t = keras.layers.dot([Flatten()(p_layer1_t[i]), Flatten()(layer1_out[i])], axes=1)
+        yopo_grad_t += [K.gradients(hamilton_layer1_t, input_xs)[0]]  # YOPO approximation of grad_t
+    yopo_grad_t = tf.reduce_mean(yopo_grad_t, 0)
 
-    history = model.fit_generator(yopo_adversary_generator(train_datagen, x_crops, logits_train, args_yopo_m, args_yopo_n),
+    history = model.fit_generator(yopo_adversary_generator(train_datagen, x_train, logits_train, args_yopo_m, args_yopo_n),
                         validation_data=adversary_generator(test_datagen, x_test, logits_test),
                         validation_steps=math.ceil(len(x_test) / args_batch_size),
                         epochs=epochs, verbose=1, workers=0,
                         callbacks=callbacks,
-                        steps_per_epoch=math.ceil(len(x_crops) / args_batch_size) * (args_yopo_m + 1))
+                        steps_per_epoch=math.ceil(len(x_train) / args_batch_size) * (args_yopo_m + 1))
 
     with open('/trainHistoryDict', 'wb') as file_pi:
         pickle.dump(history.history, file_pi)
