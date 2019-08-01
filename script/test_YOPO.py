@@ -137,8 +137,6 @@ if __name__ == '__main__':
     epochs = math.ceil(300 / args_yopo_m)
     opt = Adam(lr=1e-4, beta_1=0.5)
 
-    #x_test = x_test[:, loc_x - 10:loc_x + 10, loc_y - 10:loc_y + 10, :]
-
     model, layer1_out = create_Model(x_train)
 
     """model.compile(
@@ -171,7 +169,7 @@ if __name__ == '__main__':
     history = model.fit_generator(yopo_adversary_generator(train_datagen, x_train, logits_train, args_yopo_m, args_yopo_n),
                         validation_data=adversary_generator(test_datagen, x_test, logits_test),
                         validation_steps=math.ceil(len(x_test) / args_batch_size),
-                        epochs=epochs, verbose=1, workers=0,
+                        epochs=epochs, verbose=1, workers=4, use_multiprocessing= True,
                         callbacks=callbacks,
                         steps_per_epoch=math.ceil(len(x_train) / args_batch_size) * (args_yopo_m + 1))
 
