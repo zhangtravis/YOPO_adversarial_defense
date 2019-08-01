@@ -18,36 +18,36 @@ from keras.layers import average
 def reduce_mean(softmax):
     return tf.reduce_mean(softmax, 0)
 
-def crop(x_input, loc_x, loc_y ):
+def crop(x_input):#, loc_x, loc_y ):
     # x_input, loc_x, loc_y = var[0], var[1], var[2]
     # return x_input[:, loc_x - 10:loc_x + 10, loc_y - 10:loc_y + 10, :]
     return x_input
 
-loc = [[10, 10], [10, 14]]#, [10, 18], [14, 10], [14, 14], [14, 18], [18, 10], [18, 14], [18, 18]]
+loc = []#[[10, 10], [10, 14]]#, [10, 18], [14, 10], [14, 14], [14, 18], [18, 10], [18, 14], [18, 18]]
 
 def create_Model(x_input):
 
     layer1_out = []
     softmax = []
-    inputs = Input(shape = [28,28,1])
-    for i, loc_i in enumerate(loc):
+    inputs = Input(shape = x_input[0].shape)
+    #for i, loc_i in enumerate(loc):
         # crop
-        loc_x, loc_y = loc_i
-        pre_process = Lambda(crop, arguments={'loc_x':loc_i[0], 'loc_y':loc_i[1] })(inputs)
-        #x_crop_i = inputs#[:, loc_x - 10:loc_x + 10, loc_y - 10:loc_y + 10, :]
-        #inputs += [Input(shape=x_crop_i[0].shape)]
-        x = Conv2D(filters=32, kernel_size=5)(pre_process)
-        layer1_out += [x]
-        x = MaxPool2D(pool_size=2)(x)
-        x = Conv2D(filters=64, kernel_size=5)(x)
-        x = MaxPool2D(pool_size=2)(x)
-        x = Flatten()(x)
-        x = Dense(1024)(x)
-        softmax_i = Dense(10,activation='softmax')(x)
-        softmax += [softmax_i]
+        #loc_x, loc_y = loc_i
+    pre_process = Lambda(crop)(inputs) #, arguments={'loc_x':loc_x, 'loc_y':loc_y }
+    #x_crop_i = inputs#[:, loc_x - 10:loc_x + 10, loc_y - 10:loc_y + 10, :]
+    #inputs += [Input(shape=x_crop_i[0].shape)]
+    x = Conv2D(filters=32, kernel_size=5)(pre_process)
+    layer1_out += [x]
+    x = MaxPool2D(pool_size=2)(x)
+    x = Conv2D(filters=64, kernel_size=5)(x)
+    x = MaxPool2D(pool_size=2)(x)
+    x = Flatten()(x)
+    x = Dense(1024)(x)
+    softmax_i = Dense(10,activation='softmax')(x)
+    #softmax += [softmax_i]
 
-    softmax = average(softmax)
-    model = Model(inputs=inputs, outputs=softmax)
+    #softmax = average(softmax)
+    model = Model(inputs=inputs, outputs=softmax_i)
     return model, layer1_out
 
 def yopo_adversary_generator(datagen, x, logits, m, n):
@@ -132,7 +132,7 @@ if __name__ == '__main__':
     lr_scheduler = LearningRateScheduler(lr_schedule)
     filepath = "saved-model-{epoch:02d}-{val_acc:.2f}.hdf5"
     checkpoint = ModelCheckpoint(filepath, monitor='val_acc', verbose=1, save_best_only=False, mode='max')
-    callbacks = [lr_scheduler, checkpoint]
+    callbacks = [lr_scheduler]#, checkpoint]
 
     epochs = math.ceil(300 / args_yopo_m)
     opt = Adam(lr=1e-4, beta_1=0.5)
@@ -147,7 +147,7 @@ if __name__ == '__main__':
         metrics=['categorical_accuracy'])"""
 
     #model = multi_gpu_model(model, gpus=4)
-    model.compile(optimizer=opt, loss='categorical_crossentropy', metrics=['categorical_accuracy'])
+    model.compile(loss ='categorical_crossentropy', optimizer=opt,metrics=['categorical_accuracy'])
 
     # Standard adversarial
     input_xs = model.input
@@ -159,11 +159,13 @@ if __name__ == '__main__':
 
     # YOPO
     loss_layer1_t = K.gradients(loss_t, layer1_out)  # gradient of loss w.r.t. the output of the first layer
-    p_layer1_t = K.placeholder([len(loc)]+layer1_out[0].get_shape().as_list(), dtype=tf.float32)
+    p_layer1_t = K.placeholder([1]+layer1_out[0].get_shape().as_list(), dtype=tf.float32) #[len(loc)]
     yopo_grad_t = []
-    for i in range(2):
-        hamilton_layer1_t = keras.layers.dot([Flatten()(p_layer1_t[i]), Flatten()(layer1_out[i])], axes=1)
-        yopo_grad_t += [K.gradients(hamilton_layer1_t, input_xs)[0]]  # YOPO approximation of grad_t
+
+    #for i in range(len(loc)):
+    hamilton_layer1_t = keras.layers.dot([Flatten()(p_layer1_t), Flatten()(layer1_out)], axes=1)
+    yopo_grad_t += [K.gradients(hamilton_layer1_t, input_xs)[0]]  # YOPO approximation of grad_t
+
     yopo_grad_t = tf.reduce_mean(yopo_grad_t, 0)
 
     history = model.fit_generator(yopo_adversary_generator(train_datagen, x_train, logits_train, args_yopo_m, args_yopo_n),
@@ -173,13 +175,5 @@ if __name__ == '__main__':
                         callbacks=callbacks,
                         steps_per_epoch=math.ceil(len(x_train) / args_batch_size) * (args_yopo_m + 1))
 
-    with open('/trainHistoryDict', 'wb') as file_pi:
-        pickle.dump(history.history, file_pi)
-
-    K.clear_session()
-
-    """pre_softmax = tf.reduce_mean(pre_softmax, 0)
-    y_pred = tf.stack(y_pred)
-    xent_indv = xent
-    xent = tf.reduce_mean(xent)
-    layer1_out = tf.convert_to_tensor(layer1_out)"""
+    """with open('/trainHistoryDict', 'wb') as file_pi:
+        pickle.dump(history.history, file_pi)"""
