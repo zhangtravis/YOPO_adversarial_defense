@@ -1,3 +1,7 @@
+import os
+os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"]=""  # specify which GPU(s) to be used
+
 import math
 import numpy as np
 import tensorflow as tf
@@ -11,44 +15,43 @@ from keras.datasets import mnist
 from keras.preprocessing.image import ImageDataGenerator
 from keras.callbacks import ModelCheckpoint, LearningRateScheduler
 import pickle
-from keras.utils import multi_gpu_model
+#from keras.utils import multi_gpu_model
 from keras.layers import Lambda
 from keras.layers import average
 
 def reduce_mean(softmax):
     return tf.reduce_mean(softmax, 0)
 
-def crop(x_input):#, loc_x, loc_y ):
-    # x_input, loc_x, loc_y = var[0], var[1], var[2]
-    # return x_input[:, loc_x - 10:loc_x + 10, loc_y - 10:loc_y + 10, :]
-    return x_input
+def crop(x_input, loc_x, loc_y ):
+    return x_input[:, loc_x - 10:loc_x + 10, loc_y - 10:loc_y + 10, :]
+    #return x_input
 
-loc = []#[[10, 10], [10, 14]]#, [10, 18], [14, 10], [14, 14], [14, 18], [18, 10], [18, 14], [18, 18]]
+loc = [[10, 10]]
+#loc = [[10, 10], [10, 14]]#, [10, 18], [14, 10], [14, 14], [14, 18], [18, 10], [18, 14], [18, 18]]
 
-def create_Model(x_input):
-
-    layer1_out = []
-    softmax = []
-    inputs = Input(shape = x_input[0].shape)
-    #for i, loc_i in enumerate(loc):
-        # crop
-        #loc_x, loc_y = loc_i
-    pre_process = Lambda(crop)(inputs) #, arguments={'loc_x':loc_x, 'loc_y':loc_y }
-    #x_crop_i = inputs#[:, loc_x - 10:loc_x + 10, loc_y - 10:loc_y + 10, :]
-    #inputs += [Input(shape=x_crop_i[0].shape)]
-    x = Conv2D(filters=32, kernel_size=5)(pre_process)
-    layer1_out += [x]
+def create_Model_single(x_input):
+    layer1_out = x = Conv2D(filters=32, kernel_size=5)(x_input)
     x = MaxPool2D(pool_size=2)(x)
     x = Conv2D(filters=64, kernel_size=5)(x)
     x = MaxPool2D(pool_size=2)(x)
     x = Flatten()(x)
     x = Dense(1024)(x)
     softmax_i = Dense(10,activation='softmax')(x)
-    #softmax += [softmax_i]
+    return softmax_i, layer1_out
 
-    #softmax = average(softmax)
-    model = Model(inputs=inputs, outputs=softmax_i)
-    return model, layer1_out
+def create_Model(x_input_shape):
+    layer1_out_list = []
+    softmax_list = []
+    inputs = Input(shape = x_input_shape)
+    for i, loc_i in enumerate(loc):
+        loc_x, loc_y = loc_i
+        pre_process = Lambda(crop, arguments={'loc_x':loc_x, 'loc_y':loc_y })(inputs)
+        softmax_i, layer1_out = create_Model_single(pre_process)
+        softmax_list += [softmax_i]
+        layer1_out_list += [layer1_out]
+    softmax = keras.layers.average(softmax_list*2)
+    model = Model(inputs=inputs, outputs=softmax)
+    return model, layer1_out_list
 
 def yopo_adversary_generator(datagen, x, logits, m, n):
     old_generator = datagen.flow(x, logits, batch_size=args_batch_size)
@@ -62,11 +65,14 @@ def yopo_adversary_generator(datagen, x, logits, m, n):
             # Add perturbation to inputs. loss_layer1 is only computed once.
             loss_layer1 = sess.run(loss_layer1_t, feed_dict={input_xs: x_new_batch, targets_ys: logits_batch, sample_weights_ys: [1] * len(x_batch)})
             for j in range(n):
-                grad = sess.run(yopo_grad_t, feed_dict={input_xs: x_new_batch, p_layer1_t: loss_layer1})
+                loss_layer1_value = np.stack(loss_layer1, 0).transpose(1, 0, 2, 3, 4)
+                grad = sess.run(yopo_grad_t, feed_dict={input_xs: x_new_batch, p_layer1_t: loss_layer1_value})
+                #grad = sess.run(yopo_grad_t, feed_dict={input_xs: x_new_batch, p_layer1_t: loss_layer1})
                 grad = np.sign(grad)
                 x_new_batch += args_step_size * grad
                 x_new_batch = np.clip(x_new_batch, x_batch - args_eps, x_batch + args_eps)
                 x_new_batch = np.clip(x_new_batch, 0.0, 1.0)
+
 
 # This is the (inputs, targets) generator for training
 def adversary_generator(datagen, x, logits):
@@ -94,13 +100,16 @@ def sparse_loss_with_logits(y_train, pre_softmax_i):
 
 if __name__ == '__main__':
 
-    FLAGS = tf.app.flags.FLAGS
-    tfconfig = tf.ConfigProto(
-        allow_soft_placement=True,
-        log_device_placement=True,
-    )
-    tfconfig.gpu_options.allow_growth = True
-    sess = tf.Session(config=tfconfig)
+    if 0:
+        FLAGS = tf.app.flags.FLAGS
+        tfconfig = tf.ConfigProto(
+            allow_soft_placement=True,
+            log_device_placement=True
+        )
+        tfconfig.gpu_options.allow_growth = True
+        sess = tf.Session(config=tfconfig)
+    else:
+        sess= tf.Session()
     K.set_session(sess)
     # sess.run(tf.global_variables_initializer())
     # sess.run(tf.local_variables_initializer())
@@ -119,10 +128,10 @@ if __name__ == '__main__':
 
     (x_train, y_train), (x_test, y_test) = mnist.load_data()
     x_train = x_train.astype('float32') / 255.0
-    x_train = sess.run(tf.expand_dims(x_train, -1))
+    x_train = np.expand_dims(x_train, -1)
 
     x_test = x_test.astype('float32') / 255.0
-    x_test = sess.run(tf.expand_dims(x_test, -1))
+    x_test = np.expand_dims(x_test, -1)
     logits_train, logits_test = keras.utils.to_categorical(y_train, num_classes), keras.utils.to_categorical(y_test, num_classes)
 
     train_datagen = ImageDataGenerator()
@@ -131,18 +140,13 @@ if __name__ == '__main__':
 
     lr_scheduler = LearningRateScheduler(lr_schedule)
     filepath = "saved-model-{epoch:02d}-{val_acc:.2f}.hdf5"
-    checkpoint = ModelCheckpoint(filepath, monitor='val_acc', verbose=1, save_best_only=False, mode='max')
+    checkpoint = ModelCheckpoint(filepath, monitor='val_acc', verbose=1, save_best_only=True, mode='max')
     callbacks = [lr_scheduler]#, checkpoint]
 
     epochs = math.ceil(300 / args_yopo_m)
     opt = Adam(lr=1e-4, beta_1=0.5)
 
-    model, layer1_out = create_Model(x_train)
-
-    """model.compile(
-        optimizer=opt,
-        loss='categorical_crossentropy',
-        metrics=['categorical_accuracy'])"""
+    model, layer1_out_list = create_Model(x_train[0].shape)
 
     #model = multi_gpu_model(model, gpus=4)
     model.compile(loss ='categorical_crossentropy', optimizer=opt,metrics=['categorical_accuracy'])
@@ -156,15 +160,32 @@ if __name__ == '__main__':
     grad_t = K.gradients(loss_t, input_xs)[0]
 
     # YOPO
-    loss_layer1_t = K.gradients(loss_t, layer1_out)  # gradient of loss w.r.t. the output of the first layer
-    p_layer1_t = K.placeholder([1]+layer1_out[0].get_shape().as_list(), dtype=tf.float32) #[len(loc)]
     yopo_grad_t = []
+    for i, layer1_out in enumerate(layer1_out_list):
+        loss_layer1_t = K.gradients(loss_t, layer1_out)  # gradient of loss w.r.t. the output of the first layer
+        p_layer1_t = K.placeholder([len(loc)]+layer1_out.get_shape().as_list(), dtype=tf.float32) #[len(loc)]
+        p_layer1_t = tf.transpose(p_layer1_t, (1, 0, 2, 3, 4))
+        hamilton_layer1_t = keras.layers.dot([Flatten()(p_layer1_t), Flatten()(layer1_out)], axes=1)
+        yopo_grad_t += [K.gradients(hamilton_layer1_t, input_xs)[0]]  # YOPO approximation of grad_t
 
-    #for i in range(len(loc)):
-    hamilton_layer1_t = keras.layers.dot([Flatten()(p_layer1_t), Flatten()(layer1_out)], axes=1)
-    yopo_grad_t += [K.gradients(hamilton_layer1_t, input_xs)[0]]  # YOPO approximation of grad_t
+    yopo_grad_t = keras.layers.average(yopo_grad_t*2,)
 
-    yopo_grad_t = tf.reduce_mean(yopo_grad_t, 0)
+
+    sess.run(tf.global_variables_initializer())
+    if 1:
+        # FOR DEBUG
+        x_new_batch, logits_batch = train_datagen.flow(x_train, logits_train).next()
+        loss_layer1 = sess.run(loss_layer1_t, feed_dict={input_xs: x_new_batch, targets_ys: logits_batch,
+                                       sample_weights_ys: [1] * len(x_new_batch)})
+        loss_layer1_value = np.stack(loss_layer1, 0).transpose(1,0,2,3,4)
+        grad = sess.run(yopo_grad_t, feed_dict={input_xs: x_new_batch, p_layer1_t: loss_layer1_value})
+        exit()
+    if 0:
+        # FOR DEBUG
+        x_new_batch, logits_batch = train_datagen.flow(x_test, logits_test).next()
+        grad = sess.run(grad_t, feed_dict={input_xs: x_new_batch, targets_ys: logits_batch, sample_weights_ys: [1] * len(x_new_batch)})
+        exit()
+
 
     history = model.fit_generator(yopo_adversary_generator(train_datagen, x_train, logits_train, args_yopo_m, args_yopo_n),
                         validation_data=adversary_generator(test_datagen, x_test, logits_test),
