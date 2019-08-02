@@ -63,16 +63,16 @@ def yopo_adversary_generator(datagen, x, logits, m, n):
             if i == m:
                 break
             # Add perturbation to inputs. loss_layer1 is only computed once.
-            loss_layer1 = sess.run(loss_layer1_t, feed_dict={input_xs: x_new_batch, targets_ys: logits_batch, sample_weights_ys: [1] * len(x_batch)})
+            loss_layer1 = sess.run(loss_layer1_t, feed_dict={input_xs: x_new_batch, targets_ys: logits_batch,
+                                                             sample_weights_ys: [1] * len(x_batch)})
             for j in range(n):
                 loss_layer1_value = np.stack(loss_layer1, 0).transpose(1, 0, 2, 3, 4)
                 grad = sess.run(yopo_grad_t, feed_dict={input_xs: x_new_batch, p_layer1_t: loss_layer1_value})
-                #grad = sess.run(yopo_grad_t, feed_dict={input_xs: x_new_batch, p_layer1_t: loss_layer1})
+                # grad = sess.run(yopo_grad_t, feed_dict={input_xs: x_new_batch, p_layer1_t: loss_layer1})
                 grad = np.sign(grad)
                 x_new_batch += args_step_size * grad
                 x_new_batch = np.clip(x_new_batch, x_batch - args_eps, x_batch + args_eps)
                 x_new_batch = np.clip(x_new_batch, 0.0, 1.0)
-
 
 # This is the (inputs, targets) generator for training
 def adversary_generator(datagen, x, logits):
@@ -173,13 +173,41 @@ if __name__ == '__main__':
 
     sess.run(tf.global_variables_initializer())
     if 1:
+        def gen_test(ii):
+            datagen, x, logits, m, n = train_datagen, x_train, logits_train, args_yopo_m, args_yopo_n
+            old_generator = datagen.flow(x, logits, batch_size=args_batch_size)
+            for x_batch, logits_batch in old_generator:
+                eta = np.random.uniform(-args_eps, args_eps, x_batch.shape)
+                x_new_batch = x_batch + eta
+                for i in range(m + 1):
+                    yield x_new_batch, logits_batch
+                    if i == m:
+                        break
+                    # Add perturbation to inputs. loss_layer1 is only computed once.
+                    loss_layer1 = sess.run(loss_layer1_t, feed_dict={input_xs: x_new_batch, targets_ys: logits_batch,
+                                                                     sample_weights_ys: [1] * len(x_batch)})
+                    for j in range(n):
+                        loss_layer1_value = np.stack(loss_layer1, 0).transpose(1, 0, 2, 3, 4)
+                        grad = sess.run(yopo_grad_t, feed_dict={input_xs: x_new_batch, p_layer1_t: loss_layer1_value})
+                        # grad = sess.run(yopo_grad_t, feed_dict={input_xs: x_new_batch, p_layer1_t: loss_layer1})
+                        grad = np.sign(grad)
+                        x_new_batch += args_step_size * grad
+                        x_new_batch = np.clip(x_new_batch, x_batch - args_eps, x_batch + args_eps)
+                        x_new_batch = np.clip(x_new_batch, 0.0, 1.0)
+        for ii in range(100):
+            gen_test(ii)
+            print('test: {} done'.format(ii))
+            pass
+    if 0:
         # FOR DEBUG
-        x_new_batch, logits_batch = train_datagen.flow(x_train, logits_train).next()
-        loss_layer1 = sess.run(loss_layer1_t, feed_dict={input_xs: x_new_batch, targets_ys: logits_batch,
-                                       sample_weights_ys: [1] * len(x_new_batch)})
-        loss_layer1_value = np.stack(loss_layer1, 0).transpose(1,0,2,3,4)
-        grad = sess.run(yopo_grad_t, feed_dict={input_xs: x_new_batch, p_layer1_t: loss_layer1_value})
-        exit()
+        for i in range(100):
+            print('test: {}'.format(i))
+            x_new_batch, logits_batch = train_datagen.flow(x_train, logits_train).next()
+            loss_layer1 = sess.run(loss_layer1_t, feed_dict={input_xs: x_new_batch, targets_ys: logits_batch,
+                                           sample_weights_ys: [1] * len(x_new_batch)})
+            loss_layer1_value = np.stack(loss_layer1, 0).transpose(1,0,2,3,4)
+            grad = sess.run(yopo_grad_t, feed_dict={input_xs: x_new_batch, p_layer1_t: loss_layer1_value})
+        #exit()
     if 0:
         # FOR DEBUG
         x_new_batch, logits_batch = train_datagen.flow(x_test, logits_test).next()
