@@ -1,6 +1,6 @@
 import os
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"]=""  # specify which GPU(s) to be used
+os.environ["CUDA_VISIBLE_DEVICES"]="3"  # specify which GPU(s) to be used
 
 import math
 import numpy as np
@@ -26,8 +26,8 @@ def crop(x_input, loc_x, loc_y ):
     return x_input[:, loc_x - 10:loc_x + 10, loc_y - 10:loc_y + 10, :]
     #return x_input
 
-loc = [[10, 10]]
-#loc = [[10, 10], [10, 14]]#, [10, 18], [14, 10], [14, 14], [14, 18], [18, 10], [18, 14], [18, 18]]
+loc = [[14, 14]]
+# loc = [[10, 10], [10, 14], [10, 18], [14, 10], [14, 14], [14, 18], [18, 10], [18, 14], [18, 18]]
 
 def create_Model_single(x_input):
     layer1_out = x = Conv2D(filters=32, kernel_size=5)(x_input)
@@ -63,10 +63,10 @@ def yopo_adversary_generator(datagen, x, logits, m, n):
             if i == m:
                 break
             # Add perturbation to inputs. loss_layer1 is only computed once.
-            loss_layer1 = sess.run(loss_layer1_t, feed_dict={input_xs: x_new_batch, targets_ys: logits_batch,
+            loss_layer1 = sess.run(loss_layer1_t_list, feed_dict={input_xs: x_new_batch, targets_ys: logits_batch,
                                                              sample_weights_ys: [1] * len(x_batch)})
             for j in range(n):
-                loss_layer1_value = np.stack(loss_layer1, 0).transpose(1, 0, 2, 3, 4)
+                loss_layer1_value = np.concatenate(loss_layer1, 0).transpose((1, 0, 2, 3, 4))
                 grad = sess.run(yopo_grad_t, feed_dict={input_xs: x_new_batch, p_layer1_t: loss_layer1_value})
                 # grad = sess.run(yopo_grad_t, feed_dict={input_xs: x_new_batch, p_layer1_t: loss_layer1})
                 grad = np.sign(grad)
@@ -144,7 +144,7 @@ if __name__ == '__main__':
     callbacks = [lr_scheduler]#, checkpoint]
 
     epochs = math.ceil(300 / args_yopo_m)
-    opt = Adam(lr=1e-4, beta_1=0.5)
+    opt = Adam(lr=1e-3, beta_1=0.5)
 
     model, layer1_out_list = create_Model(x_train[0].shape)
 
@@ -161,10 +161,13 @@ if __name__ == '__main__':
 
     # YOPO
     yopo_grad_t = []
+    loss_layer1_t_list = []
+    p_layer1_t = K.placeholder([len(loc)] + layer1_out_list[0].get_shape().as_list(), dtype=tf.float32)  # [len(loc)]
+    p_layer1_t = tf.transpose(p_layer1_t, (1, 0, 2, 3, 4))
     for i, layer1_out in enumerate(layer1_out_list):
         loss_layer1_t = K.gradients(loss_t, layer1_out)  # gradient of loss w.r.t. the output of the first layer
-        p_layer1_t = K.placeholder([len(loc)]+layer1_out.get_shape().as_list(), dtype=tf.float32) #[len(loc)]
-        p_layer1_t = tf.transpose(p_layer1_t, (1, 0, 2, 3, 4))
+        loss_layer1_t_list += [loss_layer1_t]
+        layer1_out = tf.tile(tf.expand_dims(layer1_out,1),(1,len(loc),1,1,1))
         hamilton_layer1_t = keras.layers.dot([Flatten()(p_layer1_t), Flatten()(layer1_out)], axes=1)
         yopo_grad_t += [K.gradients(hamilton_layer1_t, input_xs)[0]]  # YOPO approximation of grad_t
 
@@ -195,7 +198,8 @@ if __name__ == '__main__':
                         x_new_batch = np.clip(x_new_batch, x_batch - args_eps, x_batch + args_eps)
                         x_new_batch = np.clip(x_new_batch, 0.0, 1.0)
         for ii in range(100):
-            gen_test(ii)
+            dasd = gen_test(ii)
+            next(dasd)
             print('test: {} done'.format(ii))
             pass
     if 0:
@@ -219,7 +223,7 @@ if __name__ == '__main__':
                         validation_data=adversary_generator(test_datagen, x_test, logits_test),
                         validation_steps=math.ceil(len(x_test) / args_batch_size),
                         epochs=epochs, verbose=1, workers=4, use_multiprocessing= True,
-                        callbacks=callbacks,
+                        #callbacks=callbacks,
                         steps_per_epoch=math.ceil(len(x_train) / args_batch_size) * (args_yopo_m + 1))
 
     """with open('/trainHistoryDict', 'wb') as file_pi:
