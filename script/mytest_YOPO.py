@@ -152,7 +152,7 @@ if __name__ == '__main__':
     #lossfilepath = "Original_MNIST_YOPO-loss-{epoch:02d}-{val_loss:.2f}.hdf5"
     #acc_checkpoint = ModelCheckpoint(accfilepath, monitor='val_accuracy', verbose=1, save_best_only=True, mode='max')
     #loss_checkpoint = ModelCheckpoint(lossfilepath, monitor='val_loss', verbose=1, save_best_only=True, mode='min')
-    csv_logger = CSVLogger('Original_MNIST_YOPO_model_history_log.csv')
+    csv_logger = CSVLogger('Translation-invariant_MNIST_YOPO_model_history_log.csv')
     callbacks = [time_callback, csv_logger]
 
     epochs = math.ceil(300 / args_yopo_m)
