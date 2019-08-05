@@ -1,9 +1,12 @@
 import os
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"]="3"  # specify which GPU(s) to be used
+os.environ["CUDA_VISIBLE_DEVICES"]="1"  # specify which GPU(s) to be used
 
 import math
 import numpy as np
+import time
+import json
+import matplotlib.pyplot as plt
 import tensorflow as tf
 
 import keras
@@ -13,21 +16,18 @@ from keras.models import Model
 from keras.optimizers import Adam
 from keras.datasets import mnist
 from keras.preprocessing.image import ImageDataGenerator
-from keras.callbacks import ModelCheckpoint, LearningRateScheduler
+from keras.callbacks import ModelCheckpoint, CSVLogger #LearningRateScheduler
 import pickle
 #from keras.utils import multi_gpu_model
 from keras.layers import Lambda
 from keras.layers import average
 
-def reduce_mean(softmax):
-    return tf.reduce_mean(softmax, 0)
-
 def crop(x_input, loc_x, loc_y ):
     return x_input[:, loc_x - 10:loc_x + 10, loc_y - 10:loc_y + 10, :]
     #return x_input
 
-loc = [[14, 14]]
-# loc = [[10, 10], [10, 14], [10, 18], [14, 10], [14, 14], [14, 18], [18, 10], [18, 14], [18, 18]]
+#loc = [[14, 14]]
+loc = [[10, 10], [10, 14], [10, 18], [14, 10], [14, 14], [14, 18], [18, 10], [18, 14], [18, 18]]
 
 def create_Model_single(x_input):
     layer1_out = x = Conv2D(filters=32, kernel_size=5)(x_input)
@@ -49,7 +49,7 @@ def create_Model(x_input_shape):
         softmax_i, layer1_out = create_Model_single(pre_process)
         softmax_list += [softmax_i]
         layer1_out_list += [layer1_out]
-    softmax = keras.layers.average(softmax_list*2)
+        softmax = keras.layers.average(softmax_list*2)
     model = Model(inputs=inputs, outputs=softmax)
     return model, layer1_out_list
 
@@ -95,12 +95,20 @@ def lr_schedule(epoch):
     lr = 0.001
   return lr
 
-def sparse_loss_with_logits(y_train, pre_softmax_i):
-    return tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y_train, logits=pre_softmax_i)
+class TimeHistory(keras.callbacks.Callback):
+    def on_train_begin(self, logs={}):
+        self.times = []
+
+    def on_epoch_begin(self, epoch, logs={}):
+        self.epoch_time_start = time.time()
+
+    def on_epoch_end(self, epoch, logs={}):
+        self.times.append(time.time() - self.epoch_time_start)
+
 
 if __name__ == '__main__':
 
-    if 0:
+    if 1:
         FLAGS = tf.app.flags.FLAGS
         tfconfig = tf.ConfigProto(
             allow_soft_placement=True,
@@ -115,13 +123,13 @@ if __name__ == '__main__':
     # sess.run(tf.local_variables_initializer())
 
     # Set parameters here
-    args_step_size = 2.0 / 255.0
-    args_eps = 8.0 / 255.0
+    args_step_size = 0.01
+    args_eps = 0.3
     args_step_num = 7
     args_batch_size = 32
-    args_yopo_m = 3  # m in YOPO-m-n
-    args_yopo_n = 5  # n in YOPO-m-n
-    args_lr_m = 3  # 1 if standard adversarial training, or use free_m or yopo_m
+    args_yopo_m = 5  # m in YOPO-m-n
+    args_yopo_n = 10  # n in YOPO-m-n
+    args_lr_m = 5  # 1 if standard adversarial training, or use free_m or yopo_m
     num_classes = 10
     np.random.seed(2019)
     tf.set_random_seed(9102)
@@ -138,10 +146,14 @@ if __name__ == '__main__':
     train_datagen.fit(x_train)
     test_datagen = ImageDataGenerator()
 
-    lr_scheduler = LearningRateScheduler(lr_schedule)
-    filepath = "saved-model-{epoch:02d}-{val_acc:.2f}.hdf5"
-    checkpoint = ModelCheckpoint(filepath, monitor='val_acc', verbose=1, save_best_only=True, mode='max')
-    callbacks = [lr_scheduler]#, checkpoint]
+    #lr_scheduler = LearningRateScheduler(lr_schedule)
+    time_callback = TimeHistory()
+    #accfilepath = "Original_MNIST_YOPO-accuracy-{epoch:02d}-{val_accuracy:.2f}.hdf5"
+    #lossfilepath = "Original_MNIST_YOPO-loss-{epoch:02d}-{val_loss:.2f}.hdf5"
+    #acc_checkpoint = ModelCheckpoint(accfilepath, monitor='val_accuracy', verbose=1, save_best_only=True, mode='max')
+    #loss_checkpoint = ModelCheckpoint(lossfilepath, monitor='val_loss', verbose=1, save_best_only=True, mode='min')
+    csv_logger = CSVLogger('Original_MNIST_YOPO_model_history_log.csv')
+    callbacks = [time_callback, csv_logger]
 
     epochs = math.ceil(300 / args_yopo_m)
     opt = Adam(lr=1e-3, beta_1=0.5)
@@ -162,7 +174,7 @@ if __name__ == '__main__':
     # YOPO
     yopo_grad_t = []
     loss_layer1_t_list = []
-    p_layer1_t = K.placeholder([len(loc)] + layer1_out_list[0].get_shape().as_list(), dtype=tf.float32)  # [len(loc)]
+    p_layer1_t = K.placeholder([len(loc)] + layer1_out_list[0].get_shape().as_list(), dtype=tf.float32)
     p_layer1_t = tf.transpose(p_layer1_t, (1, 0, 2, 3, 4))
     for i, layer1_out in enumerate(layer1_out_list):
         loss_layer1_t = K.gradients(loss_t, layer1_out)  # gradient of loss w.r.t. the output of the first layer
@@ -222,9 +234,44 @@ if __name__ == '__main__':
     history = model.fit_generator(yopo_adversary_generator(train_datagen, x_train, logits_train, args_yopo_m, args_yopo_n),
                         validation_data=adversary_generator(test_datagen, x_test, logits_test),
                         validation_steps=math.ceil(len(x_test) / args_batch_size),
-                        epochs=epochs, verbose=1, workers=4, use_multiprocessing= True,
-                        #callbacks=callbacks,
+                        epochs=epochs, verbose=2, workers=1, #use_multiprocessing= True,
+                        callbacks=callbacks,
                         steps_per_epoch=math.ceil(len(x_train) / args_batch_size) * (args_yopo_m + 1))
 
-    """with open('/trainHistoryDict', 'wb') as file_pi:
-        pickle.dump(history.history, file_pi)"""
+    print('done')
+
+    history.history['time'] = time_callback.times
+    model.save('Translation-invariant_MNIST_YOPO_model.h5')
+
+    with open('Translation-invariant_MNIST_YOPO_train_history', 'wb') as file:
+        pickle.dump(history.history, file)
+
+    with open('Translation-invariant_MNIST_YOPO_train_history', 'rb') as input_file:
+        history = pickle.load(input_file)
+
+    print(history.keys())
+
+    plt.plot(history['categorical_accuracy'])
+    plt.plot(history['val_categorical_accuracy'])
+    plt.title('Model Accuracy')
+    plt.ylabel('Accuracy')
+    plt.xlabel('Epoch')
+    plt.legend(['train', 'test'], loc = 'upper left')
+    plt.savefig('Translation-invariant_MNIST_YOPO_accuracy.png')
+    plt.clf()
+
+    plt.plot(history['loss'])
+    plt.plot(history['val_loss'])
+    plt.title('Model Loss')
+    plt.ylabel('Loss')
+    plt.xlabel('Epoch')
+    plt.legend(['train', 'test'], loc='upper left')
+    plt.savefig('Translation-invariant_MNIST_YOPO_loss.png')
+    plt.clf()
+
+    plt.plot(history['time'])
+    plt.title('Model Training Time')
+    plt.ylabel('Training Time (s)')
+    plt.xlabel('Epoch')
+    plt.savefig('Translation-invariant_MNIST_YOPO_time.png')
+    plt.clf()
