@@ -93,7 +93,7 @@ if __name__ == '__main__':
     test_datagen = ImageDataGenerator()
 
     # Prepare model
-    model, layer1_out = create_Model(x_input_shape=x_train.shape)
+    model, layer1_out = create_Model(x_input_shape=x_train[0].shape)
     opt = Adam(lr=1e-3, beta_1=0.5)
     model.compile(loss='categorical_crossentropy', optimizer=opt, metrics=['accuracy'])
 
