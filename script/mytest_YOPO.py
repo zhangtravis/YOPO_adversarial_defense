@@ -1,6 +1,6 @@
 import os
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"]="1"  # specify which GPU(s) to be used
+os.environ["CUDA_VISIBLE_DEVICES"]="2"  # specify which GPU(s) to be used
 
 import math
 import numpy as np
@@ -243,12 +243,13 @@ if __name__ == '__main__':
     print('done')
 
     history.history['time'] = time_callback.times
-    model.save('Test_MNIST_YOPO_model.h5')
+    name_str = 'Hope_Test_MNIST_YOPO'
+    model.save(name_str+'_model.h5')
 
-    with open('Test_MNIST_YOPO_train_history', 'wb') as file:
+    with open(name_str+'_train_history', 'wb') as file:
         pickle.dump(history.history, file)
 
-    with open('Test_MNIST_YOPO_train_history', 'rb') as input_file:
+    with open(name_str+'_train_history', 'rb') as input_file:
         history = pickle.load(input_file)
 
     print(history.keys())
@@ -259,7 +260,7 @@ if __name__ == '__main__':
     plt.ylabel('Accuracy')
     plt.xlabel('Epoch')
     plt.legend(['train', 'test'], loc = 'upper left')
-    plt.savefig('Test_MNIST_YOPO_accuracy.png')
+    plt.savefig(name_str+'_accuracy.png')
     plt.clf()
 
     plt.plot(history['loss'])
@@ -268,12 +269,12 @@ if __name__ == '__main__':
     plt.ylabel('Loss')
     plt.xlabel('Epoch')
     plt.legend(['train', 'test'], loc='upper left')
-    plt.savefig('Test_MNIST_YOPO_loss.png')
+    plt.savefig(name_str+'_loss.png')
     plt.clf()
 
     plt.plot(history['time'])
     plt.title('Model Training Time')
     plt.ylabel('Training Time (s)')
     plt.xlabel('Epoch')
-    plt.savefig('Test_MNIST_YOPO_time.png')
+    plt.savefig(name_str+'_time.png')
     plt.clf()
