@@ -49,7 +49,7 @@ def create_Model(x_input_shape):
         softmax_i, layer1_out = create_Model_single(pre_process)
         softmax_list += [softmax_i]
         layer1_out_list += [layer1_out]
-        softmax = keras.layers.average(softmax_list*2)
+    softmax = keras.layers.average(softmax_list*2)
     model = Model(inputs=inputs, outputs=softmax)
     return model, layer1_out_list
 
@@ -66,7 +66,7 @@ def yopo_adversary_generator(datagen, x, logits, m, n):
             loss_layer1 = sess.run(loss_layer1_t_list, feed_dict={input_xs: x_new_batch, targets_ys: logits_batch,
                                                              sample_weights_ys: [1] * len(x_batch)})
             for j in range(n):
-                loss_layer1_value = np.concatenate(loss_layer1, 0).transpose((1, 0, 2, 3, 4))
+                loss_layer1_value = np.concatenate(loss_layer1, 0)
                 grad = sess.run(yopo_grad_t, feed_dict={input_xs: x_new_batch, p_layer1_t: loss_layer1_value})
                 # grad = sess.run(yopo_grad_t, feed_dict={input_xs: x_new_batch, p_layer1_t: loss_layer1})
                 grad = np.sign(grad)
@@ -125,11 +125,11 @@ if __name__ == '__main__':
     # Set parameters here
     args_step_size = 0.01
     args_eps = 0.3
-    args_step_num = 7
+    args_step_num = 40
     args_batch_size = 32
     args_yopo_m = 5  # m in YOPO-m-n
     args_yopo_n = 10  # n in YOPO-m-n
-    args_lr_m = 5  # 1 if standard adversarial training, or use free_m or yopo_m
+    args_lr_m = 1  # 1 if standard adversarial training, or use free_m or yopo_m
     num_classes = 10
     np.random.seed(2019)
     tf.set_random_seed(9102)
@@ -152,7 +152,7 @@ if __name__ == '__main__':
     #lossfilepath = "Original_MNIST_YOPO-loss-{epoch:02d}-{val_loss:.2f}.hdf5"
     #acc_checkpoint = ModelCheckpoint(accfilepath, monitor='val_accuracy', verbose=1, save_best_only=True, mode='max')
     #loss_checkpoint = ModelCheckpoint(lossfilepath, monitor='val_loss', verbose=1, save_best_only=True, mode='min')
-    csv_logger = CSVLogger('Original_MNIST_YOPO_model_history_log.csv')
+    csv_logger = CSVLogger('Test_MNIST_YOPO_model_history_log.csv')
     callbacks = [time_callback, csv_logger]
 
     epochs = math.ceil(300 / args_yopo_m)
@@ -175,19 +175,19 @@ if __name__ == '__main__':
     yopo_grad_t = []
     loss_layer1_t_list = []
     p_layer1_t = K.placeholder([len(loc)] + layer1_out_list[0].get_shape().as_list(), dtype=tf.float32)
-    p_layer1_t = tf.transpose(p_layer1_t, (1, 0, 2, 3, 4))
+    #p_layer1_t = tf.transpose(p_layer1_t, (1, 0, 2, 3, 4))
     for i, layer1_out in enumerate(layer1_out_list):
         loss_layer1_t = K.gradients(loss_t, layer1_out)  # gradient of loss w.r.t. the output of the first layer
         loss_layer1_t_list += [loss_layer1_t]
-        layer1_out = tf.tile(tf.expand_dims(layer1_out,1),(1,len(loc),1,1,1))
-        hamilton_layer1_t = keras.layers.dot([Flatten()(p_layer1_t), Flatten()(layer1_out)], axes=1)
+        #layer1_out = tf.tile(tf.expand_dims(layer1_out,1),(1,len(loc),1,1,1))
+        hamilton_layer1_t = keras.layers.dot([Flatten()(p_layer1_t[i]), Flatten()(layer1_out)], axes=1)
         yopo_grad_t += [K.gradients(hamilton_layer1_t, input_xs)[0]]  # YOPO approximation of grad_t
 
     yopo_grad_t = keras.layers.average(yopo_grad_t*2,)
 
 
     sess.run(tf.global_variables_initializer())
-    if 1:
+    if 0:
         def gen_test(ii):
             datagen, x, logits, m, n = train_datagen, x_train, logits_train, args_yopo_m, args_yopo_n
             old_generator = datagen.flow(x, logits, batch_size=args_batch_size)
@@ -231,7 +231,9 @@ if __name__ == '__main__':
         exit()
 
 
-    history = model.fit_generator(yopo_adversary_generator(train_datagen, x_train, logits_train, args_yopo_m, args_yopo_n),
+    history = model.fit_generator(
+                        yopo_adversary_generator(train_datagen, x_train, logits_train, args_yopo_m, args_yopo_n),
+                        #adversary_generator(train_datagen, x_train, logits_train),
                         validation_data=adversary_generator(test_datagen, x_test, logits_test),
                         validation_steps=math.ceil(len(x_test) / args_batch_size),
                         epochs=epochs, verbose=2, workers=1, #use_multiprocessing= True,
@@ -241,12 +243,12 @@ if __name__ == '__main__':
     print('done')
 
     history.history['time'] = time_callback.times
-    model.save('Translation-invariant_MNIST_YOPO_model.h5')
+    model.save('Test_MNIST_YOPO_model.h5')
 
-    with open('Translation-invariant_MNIST_YOPO_train_history', 'wb') as file:
+    with open('Test_MNIST_YOPO_train_history', 'wb') as file:
         pickle.dump(history.history, file)
 
-    with open('Translation-invariant_MNIST_YOPO_train_history', 'rb') as input_file:
+    with open('Test_MNIST_YOPO_train_history', 'rb') as input_file:
         history = pickle.load(input_file)
 
     print(history.keys())
@@ -257,7 +259,7 @@ if __name__ == '__main__':
     plt.ylabel('Accuracy')
     plt.xlabel('Epoch')
     plt.legend(['train', 'test'], loc = 'upper left')
-    plt.savefig('Translation-invariant_MNIST_YOPO_accuracy.png')
+    plt.savefig('Test_MNIST_YOPO_accuracy.png')
     plt.clf()
 
     plt.plot(history['loss'])
@@ -266,12 +268,12 @@ if __name__ == '__main__':
     plt.ylabel('Loss')
     plt.xlabel('Epoch')
     plt.legend(['train', 'test'], loc='upper left')
-    plt.savefig('Translation-invariant_MNIST_YOPO_loss.png')
+    plt.savefig('Test_MNIST_YOPO_loss.png')
     plt.clf()
 
     plt.plot(history['time'])
     plt.title('Model Training Time')
     plt.ylabel('Training Time (s)')
     plt.xlabel('Epoch')
-    plt.savefig('Translation-invariant_MNIST_YOPO_time.png')
+    plt.savefig('Test_MNIST_YOPO_time.png')
     plt.clf()
