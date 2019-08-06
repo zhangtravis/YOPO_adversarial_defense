@@ -98,13 +98,13 @@ if __name__ == '__main__':
     model.compile(loss='categorical_crossentropy', optimizer=opt, metrics=['accuracy'])
 
     # Set parameters here
-    args_step_size = 2.0 / 255.0
-    args_eps = 8.0 / 255.0
-    args_step_num = 7
-    args_batch_size = 64
+    args_step_size = 0.01
+    args_eps = 0.3
+    args_step_num = 40
+    args_batch_size = 32
     args_free_m = 8  # m in Free-m
-    args_yopo_m = 3  # m in YOPO-m-n
-    args_yopo_n = 5  # n in YOPO-m-n
+    args_yopo_m = 40  # m in YOPO-m-n
+    args_yopo_n = 1  # n in YOPO-m-n
     args_lr_m = 3  # 1 if standard adversarial training, or use free_m or yopo_m
 
     input_xs = model.input
