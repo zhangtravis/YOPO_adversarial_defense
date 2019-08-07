@@ -152,7 +152,7 @@ if __name__ == '__main__':
     #lossfilepath = "Original_MNIST_YOPO-loss-{epoch:02d}-{val_loss:.2f}.hdf5"
     #acc_checkpoint = ModelCheckpoint(accfilepath, monitor='val_accuracy', verbose=1, save_best_only=True, mode='max')
     #loss_checkpoint = ModelCheckpoint(lossfilepath, monitor='val_loss', verbose=1, save_best_only=True, mode='min')
-    csv_logger = CSVLogger('Test_MNIST_YOPO_model_history_log.csv')
+    csv_logger = CSVLogger('Translation-invariant_MNIST_YOPO_model_history_log.csv')
     callbacks = [time_callback, csv_logger]
 
     epochs = math.ceil(300 / args_yopo_m)
@@ -187,48 +187,6 @@ if __name__ == '__main__':
 
 
     sess.run(tf.global_variables_initializer())
-    if 0:
-        def gen_test(ii):
-            datagen, x, logits, m, n = train_datagen, x_train, logits_train, args_yopo_m, args_yopo_n
-            old_generator = datagen.flow(x, logits, batch_size=args_batch_size)
-            for x_batch, logits_batch in old_generator:
-                eta = np.random.uniform(-args_eps, args_eps, x_batch.shape)
-                x_new_batch = x_batch + eta
-                for i in range(m + 1):
-                    yield x_new_batch, logits_batch
-                    if i == m:
-                        break
-                    # Add perturbation to inputs. loss_layer1 is only computed once.
-                    loss_layer1 = sess.run(loss_layer1_t, feed_dict={input_xs: x_new_batch, targets_ys: logits_batch,
-                                                                     sample_weights_ys: [1] * len(x_batch)})
-                    for j in range(n):
-                        loss_layer1_value = np.stack(loss_layer1, 0).transpose(1, 0, 2, 3, 4)
-                        grad = sess.run(yopo_grad_t, feed_dict={input_xs: x_new_batch, p_layer1_t: loss_layer1_value})
-                        # grad = sess.run(yopo_grad_t, feed_dict={input_xs: x_new_batch, p_layer1_t: loss_layer1})
-                        grad = np.sign(grad)
-                        x_new_batch += args_step_size * grad
-                        x_new_batch = np.clip(x_new_batch, x_batch - args_eps, x_batch + args_eps)
-                        x_new_batch = np.clip(x_new_batch, 0.0, 1.0)
-        for ii in range(100):
-            dasd = gen_test(ii)
-            next(dasd)
-            print('test: {} done'.format(ii))
-            pass
-    if 0:
-        # FOR DEBUG
-        for i in range(100):
-            print('test: {}'.format(i))
-            x_new_batch, logits_batch = train_datagen.flow(x_train, logits_train).next()
-            loss_layer1 = sess.run(loss_layer1_t, feed_dict={input_xs: x_new_batch, targets_ys: logits_batch,
-                                           sample_weights_ys: [1] * len(x_new_batch)})
-            loss_layer1_value = np.stack(loss_layer1, 0).transpose(1,0,2,3,4)
-            grad = sess.run(yopo_grad_t, feed_dict={input_xs: x_new_batch, p_layer1_t: loss_layer1_value})
-        #exit()
-    if 0:
-        # FOR DEBUG
-        x_new_batch, logits_batch = train_datagen.flow(x_test, logits_test).next()
-        grad = sess.run(grad_t, feed_dict={input_xs: x_new_batch, targets_ys: logits_batch, sample_weights_ys: [1] * len(x_new_batch)})
-        exit()
 
 
     history = model.fit_generator(
